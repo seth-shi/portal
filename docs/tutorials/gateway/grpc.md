@@ -324,6 +324,93 @@ $ curl http://localhost:8888/ping
 </TabItem>
 </Tabs>
 
+## 进阶
+1. `protobuf`文件中自定义请求路径和方法
+```protobuf
+## hello.protobuf 文件
+syntax = "proto3";
+package hello;
+option go_package = "./hello";
+// 这里增加 improt
+import "google/api/annotations.proto";
+message Request {
+}
+message Response {
+  string msg = 1;
+}
+service Hello {
+  rpc Ping(Request) returns(Response) {
+    // 这里增加 option
+    option (google.api.http) = {
+      post: "/api/v1/hello"
+      body: "*"
+    };
+  }
+}
+## import 依赖文件
+// 需要手动下载 annotations.protobuf 文件: https://github.com/googleapis/googleapis/tree/master/google/api 下载到对应的文件夹
+-app
+   -hello.proto
+   -google
+	-api
+            -annotations.proto
+            -http.proto
+	-protobuf
+            -descriptor.proto
+## 继续下一步生成文件
+$ goctl rpc protoc hello.proto --go_out=server --go-grpc_out=server --zrpc_out=server
+```
+
+2. 自定义错误
+```golang
+package main
+
+import (
+    "flag"
+
+    "github.com/zeromicro/go-zero/core/conf"
+    "github.com/zeromicro/go-zero/gateway"
+)
+
+var configFile = flag.String("f", "etc/gateway.yaml", "config file")
+
+func main() {
+    flag.Parse()
+
+    var c gateway.GatewayConf
+    conf.MustLoad(*configFile, &c)
+    gw := gateway.MustNewServer(c)
+    defer gw.Stop()
+
+    // 注册错误处理
+    httpx.SetErrorHandlerCtx(grpcErrorHandlerCtx)
+
+    gw.Start()
+}
+
+// 自定义错误
+func grpcErrorHandler(err error) (int, any) {
+	if s, ok := status.FromError(err); ok {
+		return http.StatusOK, Res{
+			Code: int(s.Code()),
+			Msg:  s.Message(),
+		}
+	}
+
+	return http.StatusInternalServerError, nil
+}
+
+func grpcErrorHandlerCtx(ctx context.Context, err error) (int, any) {
+	return grpcErrorHandler(err)
+}
+
+type Res struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+```
+
 ## 参考文献
 
 - <a href="https://github.com/zeromicro/go-zero/tree/master/gateway" target="_blank">《go-zero • gateway》</a>
